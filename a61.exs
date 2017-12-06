@@ -1,0 +1,48 @@
+defmodule Advent do
+  def solve(input) when is_binary(input) do
+    list = input
+    |> String.split() 
+    |> Enum.map(&String.to_integer/1)
+    |> Enum.with_index()
+
+    solve(list, length(list), MapSet.new(), 0)
+  end
+  
+  def solve(list, size, memory, cycles) when is_list(list) do
+    if MapSet.member?(memory, list) do
+      cycles
+    else
+      new_list = distirbute(list, size)
+      solve(new_list, size, MapSet.put(memory, list), cycles + 1)
+    end
+  end
+
+  def distirbute(list, size) when is_list(list) do
+    {points, index} = Enum.max_by(list, fn {element, _index} -> element end)
+
+    base = Integer.floor_div(points, size)
+    elements = Integer.mod(points, size)
+
+    sum = index + elements
+
+    if sum >= size do
+      lower = sum-size
+      upper = index + 1
+
+      Enum.map(list, fn
+        {^points, ^index} -> if index > lower and index < upper, do: {base, index}, else: {base + 1, index}
+        {element, idx} when idx > lower and idx < upper -> {base + element, idx}
+        {element, idx} -> {element + base + 1, idx}
+      end)
+    else
+      lower = index + 1
+      upper = index + elements
+
+      Enum.map(list, fn
+        {^points, ^index} -> {base, index}
+        {element, idx} when idx < lower or idx > upper -> {element + base, idx}
+        {element, idx} -> {element + base + 1, idx}
+      end)
+    end
+  end
+end
