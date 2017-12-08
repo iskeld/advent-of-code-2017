@@ -33,8 +33,12 @@ defmodule Advent do
     case get_unbalanced(edge) do
       [] -> true
       items ->
-        IO.inspect (items)
-        Enum.map(items, &is_balanced/1)
+        balance = Enum.map(items, &is_balanced/1)
+        if Enum.all?(balance, &(&1 == true)) do
+          message = Enum.map(elem(edge, 3), fn({name, _, sum, _}) -> "#{name}: #{sum}" end)
+          |> Enum.join("\n")
+          IO.puts message
+        end
     end
   end
 
