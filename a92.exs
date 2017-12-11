@@ -7,8 +7,6 @@ defmodule Advent do
   def process([], garbage_count), do: garbage_count
   def process([char | tail], garbage_count) do
     case char do
-      ?{ -> process(tail, garbage_count)
-      ?} -> process(tail, garbage_count)
       ?< -> process_garbage(tail, garbage_count)
       _ -> process(tail, garbage_count)
     end
