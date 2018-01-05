@@ -1,10 +1,148 @@
 defmodule Advent do
+  defmodule Vector do
+    defstruct [:size, :rows]
+
+    def from_list(list) when is_list(list) do
+      size = length(list) |> :math.sqrt() |> round()
+      rows = Enum.chunk_every(list, size)
+             |> Enum.map(fn x -> :array.from_list(x, nil) end)
+      %Vector{size: size, rows: :array.from_list(rows, nil)}
+    end
+
+    def size(%Vector{size: size}), do: size
+
+    def to_list(%Vector{rows: rows}) do
+      :array.to_list(rows)
+      |> Enum.map(fn r -> :array.to_list(r) end)
+      |> Enum.concat()
+    end
+
+    def concat(vectors) when is_list(vectors) do
+      chunk_size = length(vectors) |> :math.sqrt() |> round()
+      vectors 
+      |> Enum.chunk_every(chunk_size)
+      |> Enum.map(&merge_vectors/1)
+      |> Enum.concat()
+      |> from_list()
+    end
+
+    def merge_vectors(list) when is_list(list) do
+      Enum.reduce(list, %{}, fn (v, map) -> merge_maps(map, merge_vector(v)) end)
+      |> Map.values()
+      |> Enum.concat()
+    end
+
+    def merge_vector(%Vector{rows: rows}) do
+      :array.foldl(fn (idx, row, map) -> 
+        list = :array.to_list(row)
+        Map.update(map, idx, list, fn ex -> Enum.concat(ex, list) end)
+      end, %{}, rows)
+    end
+
+    def chunk(v = %Vector{size: size}) do
+      cond do
+        rem(size, 2) == 0 -> chunk(v, 2)
+        rem(size, 3) == 0 -> chunk(v, 3)
+        true -> raise("size error")
+      end
+    end
+
+    def chunk(%Vector{rows: rows}, new_size) do
+      :array.to_list(rows)
+      |> Enum.chunk_every(new_size)
+      |> Enum.map(fn r -> chunk_row(r, new_size) end)
+      |> Enum.concat()
+    end
+
+    def chunk_row(row, size) when is_list(row) do
+      row
+      |> Enum.map(fn r -> :array.to_list(r) |> Enum.chunk_every(size) |> enum_to_map()  end)
+      |> Enum.reduce(%{}, fn (row, acc) -> merge_maps(acc, row) end)
+      |> Map.to_list()
+      |> Enum.sort_by(&elem(&1, 0))
+      |> Enum.map(fn {_, v} -> from_list(v) end)
+    end
+
+    def merge_maps(m1, m2) do
+      Map.merge(m1, m2, fn (_, l1, l2) -> Enum.concat(l1, l2) end)
+    end
+
+    def enum_to_map(list) when is_list(list) do
+      Enum.with_index(list) |> Map.new(fn {x, idx} -> {idx, x} end)
+    end
+
+    def list_variants(v = %Vector{}) do
+      list = to_list(v)
+      rotated90 = rotate(list, 90)
+      [
+        list,
+        flip_hor(v) |> to_list(),
+        flip_ver(v) |> to_list(),
+        rotated90,
+        rotate(list, 180),
+        rotate(list, 270),
+        from_list(rotated90) |> flip_hor() |> to_list(),
+        from_list(rotated90) |> flip_ver() |> to_list(),
+      ]
+    end
+
+    def flip_hor(v = %Vector{rows: rows}) do
+      new_rows = :array.map(fn (_, row) -> reverse(row) end, rows)
+      %{v | rows: new_rows}
+    end
+
+    def flip_ver(v = %Vector{rows: rows}) do
+      %{v | rows: reverse(rows)}
+    end
+
+    defp rotate(list, 180) when is_list(list), do: Enum.reverse(list)
+    defp rotate([a0, a1, a2, a3, a4, a5, a6, a7, a8], 90), do: [a2, a5, a8, a1, a4, a7, a0, a3, a6]
+    defp rotate([a0, a1, a2, a3, a4, a5, a6, a7, a8], 270), do: [a6, a3, a0, a7, a4, a1, a8, a5, a2]
+
+    defp rotate([a0, a1, a2, a3], 90), do: [a1, a3, a0, a2]
+    defp rotate([a0, a1, a2, a3], 270), do: [a2, a0, a3, a1]
+
+    defp reverse(array) do
+      :array.to_list(array)
+      |> Enum.reverse()
+      |> :array.from_list()
+    end
+  end
+
   @initial_pattern [0,1,0,0,0,1,1,1,1]
 
   def solve(input, iterations) do
     rules = parse(input)
-    break(@initial_pattern, rules, iterations)
-    #    |> count_on()
+    initial_vector = Vector.from_list(@initial_pattern)
+    iter(initial_vector, rules, iterations) |> on()
+  end
+
+  def dump(vector) do
+    Vector.to_list(vector)
+    |> Enum.chunk_every(Vector.size(vector))
+    |> Enum.map(fn row -> to_pixels(row) |> Enum.join() |> IO.puts() end)
+    :ok
+  end
+
+  def iter(vector, _, 0), do: vector
+  def iter(vector, rules, counter) do
+    new_vec = iterate(vector, rules)
+    iter(new_vec, rules, counter - 1)
+  end
+
+  def iterate(vector, rules) do
+    vector
+    |> Vector.chunk()
+    |> Enum.map(fn v -> enhance(v, rules) end)
+    |> Vector.concat()
+  end
+
+  def enhance(vector, rules) do
+    rules = rules[Vector.size(vector)]
+    vector
+    |> Vector.list_variants()
+    |> Enum.find_value(fn x -> rules[x] end)
+    |> Vector.from_list()
   end
 
   def count_on(list), do: Enum.count(list, fn x -> x == 1 end)
@@ -36,95 +174,15 @@ defmodule Advent do
                       0 -> "."
     end)
   end
-  def pixel_variations(list) do
-    v = variations(to_pixels(list))
-    size = list |> length() |> :math.sqrt() |> round() 
-    Enum.map(v, fn list -> Enum.chunk_every(list, size) |> Enum.intersperse("/") end)
-    |> Enum.map(fn x -> List.flatten(x) |> Enum.join() end)
+
+  def on(vector) do
+    Vector.to_list(vector) |> Enum.count(fn x -> x == 1 end)
   end
 
-  def break(list, _rules, 0), do: list
-  def break(list, rules, counter) do
-    size = list |> length() |> :math.sqrt() |> round() 
-
-    new_list = if rem(size, 2) == 0 do
-      chunk(list, size, 2, rules[2])
-    else
-      chunk(list, size, 3, rules[3])
-    end
-    break(new_list, rules, counter - 1)
+  def rev(size) do
+    list = Enum.to_list(0..size*size-1)
+    list2 = Vector.from_list(list) |> Vector.chunk() |> Vector.concat() |> Vector.to_list()
+    {list == list2, list, list2}
   end
-
-  def chunk(list, size, slice, rules) do
-    list
-    |> Enum.with_index()
-    |> Enum.group_by(fn {_x, index} -> Advent.get_group(index, size, slice) end, fn {x, _index} -> x end)
-    |> Enum.map(fn ({header, list}) -> {header, enhance(list, rules)} end)
-    |> Enum.group_by(fn {{col, _row}, _list} -> col end, fn {{_col, _row}, list} -> list end)
-    |> join()
-  end
-
-  def join(list) do
-    size = Map.values(list) |> Enum.at(0) |> Enum.at(0) |> length() |> :math.sqrt() |> round()
-    size = if rem(size, 2) == 0, do: 2, else: 3
-    Enum.reduce(list, [], fn ({_, x}, acc) -> acc ++ join_group(x, size) end)
-  end
-
-  def join_group(lists, 2) do
-    Enum.flat_map(lists, fn x -> Enum.take(x, 2) end) ++ Enum.flat_map(lists, fn x -> Enum.drop(x, 2) end)
-  end
-
-  def join_group(lists, 3) do
-    Enum.flat_map(lists, fn x -> Enum.take(x, 3) end) ++ Enum.flat_map(lists, fn x -> Enum.slice(x, 3, 3) end) ++ Enum.flat_map(lists, fn x -> Enum.drop(x, 6) end)
-  end
-
-  def get_group(index, size, slice) do
-    row_index = rem(index, size)
-    col_index = div(index, size)
-    row_group = div(row_index, slice)
-    col_group = div(col_index, slice)
-    {col_group, row_group}
-  end
-
-  def enhance(list, rules) do
-    list
-    |> variations()
-    |> Enum.find_value(fn (x) -> rules[x] end)
-  end
-
-  def variations(list) do
-    list
-    |> rotations()
-    |> Enum.flat_map(fn l -> flips(l) end)
-    |> MapSet.new()
-    |> Enum.to_list()
-  end
-
-  def rotations(list = [a0, a1, a2, a3, a4, a5, a6, a7, a8]) do
-    [list,
-     [a2, a5, a8, a1, a4, a7, a0, a3, a6], # 90*
-     Enum.reverse(list), # 180*
-     [a6, a3, a0, a7, a4, a1, a8, a5, a2], # 270*
-    ]
-  end
-
-  def rotations(list = [a0, a1, a2, a3]) do
-    [list,
-     [a1, a3, a0, a2], # 90*
-     Enum.reverse(list), # 180*
-     [a2, a0, a3, a1], # 270*
-    ]
-  end
-
-  def flips(list = [a0, a1, a2, a3, a4, a5, a6, a7, a8]) do
-     [list, [a2, a1, a0, a5, a4, a3, a8, a7, a6], # flip hor
-     [a6, a7, a8, a3, a4, a5, a0, a1, a2]] # flip ver
-  end
-
-  def flips(list = [a0, a1, a2, a3]) do
-     [list, [a1, a0, a3, a2], # flip hor
-     [a2, a3, a0, a1]] # flip ver
-  end
-
 end
 
